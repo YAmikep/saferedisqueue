@@ -21,13 +21,15 @@ setup(
         "Operating System :: OS Independent",
         "Programming Language :: Python",
         "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.4",
         "Topic :: Internet",
     ],
     keywords='Redis, key-value store, queue, queueing, Storm',
     url='https://github.com/hellp/saferedisqueue',
     py_modules=['saferedisqueue'],
     install_requires=[
-        'redis >= 2.7.6, < 2.10.2',
+        'redis >= 2.7.6, < 2.11',
     ],
     zip_safe=False,
 )

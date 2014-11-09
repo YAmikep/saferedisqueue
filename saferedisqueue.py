@@ -110,12 +110,17 @@ class SafeRedisQueue(object):
                 .execute()
 
     def pop(self, timeout=0):
-        """Get next item from queue. Blocks if queue is empty.
-        Blocks forever if timeout is 0 (default).
-        Blocking can be disabled by passing a negative timeout.
+        """Return next item from queue. Blocking by default.
 
-        Pops uid from queue and writes it to ackbuffer.
-        Returns the corresponding item.
+        Blocks if queue is empty, see `timeout` parameter.
+
+        Internally this also pops uid from queue and writes it to
+        ackbuffer.
+
+        :param timeout: blocking timeout in seconds
+                        - 0: block forever (default)
+                        - negative: disable blocking
+
         """
         self._autoclean()
         if timeout < 0:
@@ -178,7 +183,7 @@ if __name__ == "__main__":
         while True:
             uid, item = queue.pop()
             queue.ack(uid)
-            print uid, item
+            print(uid, item)
     elif sys.argv[1] == 'demo':
         map(queue.push, ['Hello', 'World'])
         while True:
@@ -186,6 +191,6 @@ if __name__ == "__main__":
             if uid is None:
                 sys.exit()
             queue.ack(uid)
-            print uid, item
+            print(uid, item)
     else:
         _usage()
