@@ -25,6 +25,8 @@ class SafeRedisQueue(object):
         self.QUEUE_KEY = '%s:queue' % prefix
         self.ITEMS_KEY = '%s:items' % prefix
         self.ACKBUF_KEY = '%s:ackbuf' % prefix
+        self.FAILED_KEY = '%s:failed' % prefix
+        self.FAILED_COUNTERS_KEY = '%s:failed_counters' % prefix
         self.BACKUP = '%s:backup' % prefix
         self.BACKUP_LOCK = '%s:backuplock' % prefix
         self.AUTOCLEAN_INTERVAL = kw.pop('autoclean_interval',
@@ -133,17 +135,49 @@ class SafeRedisQueue(object):
                    .lrem(self.ACKBUF_KEY, 0, uid)\
                    .lrem(self.BACKUP, 0, uid)\
                    .hdel(self.ITEMS_KEY, uid)\
+                   .hdel(self.FAILED_COUNTERS_KEY, uid)\
                    .execute()
 
-    def fail(self, uid):
+    def fail(self, uid, max_retry=0):
         """Report item as not successfully consumed.
 
-        Removes uid from ackbuffer and re-enqueues it.
+        Removes uid from ackbuffer and either re-enqueues it or put it in the failed queue to avoid indefinite retries.
+
+        The `max_retry` parameter defines this behavior:
+            0: do not retry and add to the failed queue. (Default)
+            >0: re-enqueues the item if it has not been retried `max_retry` of times
+            None: re-enqueues the item indefinitely no matter how many times it failed
+
         """
-        self._redis.pipeline()\
+        # No retry: add to failed queue
+        if max_retry == 0:
+            self._redis.pipeline()\
+               .lrem(self.ACKBUF_KEY, 0, uid)\
+               .lrem(self.BACKUP, 0, uid)\
+               .lpush(self.FAILED_KEY, uid)\
+               .execute()
+
+        # Retry
+        else:
+            # Definite retries
+            # Check the number of failures
+            if max_retry > 0:
+                nb_failures = self._redis.hincrby(self.FAILED_COUNTERS_KEY, uid, amount=1)
+
+            # If can retry, add to the queue again
+            if max_retry is None or max_retry <= nb_failures:
+                self._redis.pipeline()\
                    .lrem(self.ACKBUF_KEY, 0, uid)\
                    .lrem(self.BACKUP, 0, uid)\
                    .lpush(self.QUEUE_KEY, uid)\
+                   .execute()
+
+            # Otherwise, add to the failed queue
+            else:
+                self._redis.pipeline()\
+                   .lrem(self.ACKBUF_KEY, 0, uid)\
+                   .lrem(self.BACKUP, 0, uid)\
+                   .lpush(self.FAILED_KEY, uid)\
                    .execute()
 
 
