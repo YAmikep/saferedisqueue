@@ -110,7 +110,6 @@ def test_lua_rename_scripts(func_name, ok_return_val, err_return_val):
     queue._redis.delete(key3)
     queue._redis.delete(key4)
 
-
 def test_decode_responses_true():
     queue = SafeRedisQueue(
         name='saferedisqueue-test-%s' % uuid1().hex,
@@ -129,3 +128,39 @@ def test_decode_responses_false():
     return_val = queue.pop()[1]
     assert isinstance(return_val, bytes)
     assert nativestr(unicode_string) == nativestr(return_val)
+
+
+# Serializer tests
+# Try with json and pickle serializer
+# Note: Python3: wrap json.loads to be able to handle the byte output.
+try:
+    import simplejson as JSONSerializer
+except ImportError:
+    import json as JSONSerializer
+
+import pickle as PickleSerializer
+
+@pytest.mark.parametrize("serializer", [
+    JSONSerializer,
+    PickleSerializer,
+])
+def test_serializer(serializer):
+
+    queue = SafeRedisQueue(
+        name='saferedisqueue-test-%s' % uuid1().hex,
+        autoclean_interval=1,
+        serializer=serializer
+    )
+
+    item = {'test': 'good', 'values': ['a', 'b', 'c']}
+
+    # Test when there is an element
+    queue.push(item)
+    uid_item, payload_item = queue.pop()
+    assert type(item) == type(payload_item)
+    assert item == payload_item
+
+    # Test when there is no element and it times out
+    uid_item, payload_item = queue.pop(timeout=1)
+    assert None == uid_item
+    assert None == payload_item
