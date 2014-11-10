@@ -91,7 +91,7 @@ class SafeRedisQueue(object):
                 except redis.WatchError:
                     pass
 
-    def push(self, item):
+    def put(self, item):
         """Adds an item to the queue.
 
         Generates a uid for later referral.
@@ -102,8 +102,12 @@ class SafeRedisQueue(object):
                 .hset(self.ITEMS_KEY, uid, item)\
                 .lpush(self.QUEUE_KEY, uid)\
                 .execute()
+        return uid
 
-    def pop(self, timeout=0):
+    # Kept for backwards compatibility
+    push = put
+
+    def get(self, timeout=0):
         """Return next item from queue. Blocking by default.
 
         Blocks if queue is empty, see `timeout` parameter.
@@ -123,6 +127,9 @@ class SafeRedisQueue(object):
             uid = self._redis.brpoplpush(self.QUEUE_KEY, self.ACKBUF_KEY, timeout)
         item = self._redis.hget(self.ITEMS_KEY, uid)
         return uid, item
+
+    # Kept for backwards compatibility
+    pop = get
 
     def ack(self, uid):
         """Acknowledge item as successfully consumed.
