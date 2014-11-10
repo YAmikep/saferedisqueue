@@ -149,6 +149,22 @@ class SafeRedisQueue(object):
                    .hdel(self.FAILED_COUNTERS_KEY, uid)\
                    .execute()
 
+    def _move_to_failed_queue(self, uid):
+        """Moves an item uid to the failed queue."""
+        self._redis.pipeline()\
+           .lrem(self.ACKBUF_KEY, 0, uid)\
+           .lrem(self.BACKUP, 0, uid)\
+           .lpush(self.FAILED_KEY, uid)\
+           .execute()
+
+    def _move_to_main_queue(self, uid):
+        """Moves an item uid to the main queue."""
+        self._redis.pipeline()\
+           .lrem(self.ACKBUF_KEY, 0, uid)\
+           .lrem(self.BACKUP, 0, uid)\
+           .lpush(self.QUEUE_KEY, uid)\
+           .execute()
+
     def fail(self, uid, max_retry=0):
         """Report item as not successfully consumed.
 
@@ -156,40 +172,39 @@ class SafeRedisQueue(object):
 
         The `max_retry` parameter defines this behavior:
             0: do not retry and add to the failed queue. (Default)
-            >0: re-enqueues the item if it has not been retried `max_retry` of times
+            >0: re-enqueues the item if it has not been retried `max_retry` times yet
             None: re-enqueues the item indefinitely no matter how many times it failed
 
+        Returns a boolean telling whether the item has been re-enqueued.
+
         """
-        # No retry: add to failed queue
+        reenqueued = False
+
+        # No retry: move to the failed queue
         if max_retry == 0:
-            self._redis.pipeline()\
-               .lrem(self.ACKBUF_KEY, 0, uid)\
-               .lrem(self.BACKUP, 0, uid)\
-               .lpush(self.FAILED_KEY, uid)\
-               .execute()
+            self._move_to_failed_queue(uid)
 
-        # Retry
-        else:
-            # Definite retries
-            # Check the number of failures
-            if max_retry > 0:
-                nb_failures = self._redis.hincrby(self.FAILED_COUNTERS_KEY, uid, amount=1)
+        # Definite retries
+        # Check the number of failures
+        elif max_retry > 0:
+            nb_failures = self._redis.hincrby(self.FAILED_COUNTERS_KEY, uid, amount=1)
 
-            # If can retry, add to the queue again
-            if max_retry is None or max_retry <= nb_failures:
-                self._redis.pipeline()\
-                   .lrem(self.ACKBUF_KEY, 0, uid)\
-                   .lrem(self.BACKUP, 0, uid)\
-                   .lpush(self.QUEUE_KEY, uid)\
-                   .execute()
+            # If can retry, move to the main queue again
+            if nb_failures <= max_retry:
+                self._move_to_main_queue(uid)
+                reenqueued = True
 
-            # Otherwise, add to the failed queue
+            # Otherwise, move to the failed queue
             else:
-                self._redis.pipeline()\
-                   .lrem(self.ACKBUF_KEY, 0, uid)\
-                   .lrem(self.BACKUP, 0, uid)\
-                   .lpush(self.FAILED_KEY, uid)\
-                   .execute()
+                self._move_to_failed_queue(uid)
+
+        # Infinite retries
+        # Move to the main queue again
+        else:
+            self._move_to_main_queue(uid)
+            reenqueued = True
+
+        return reenqueued
 
 
 if __name__ == "__main__":
