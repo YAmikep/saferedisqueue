@@ -24,7 +24,7 @@ redis.py             saferedisqueue
 ===============      ===============
 2.4.10 - 2.6.x       1.x
 2.7.0 - 2.7.5        no compatible version
-2.7.6 - 2.10.x       2.x
+2.7.6 - 2.10.x       2.x-3.x
 ===============      ===============
 
 
@@ -33,7 +33,9 @@ Usage as a library
 
 >>> queue = SafeRedisQueue(name='test')
 >>> queue.put("Hello World")
+'595d43b2-2e49-4e96-a1d2-0848d1c7f0d3'
 >>> queue.put("Foo bar")
+'1df060eb-b578-499d-bede-20db9da8184e'
 >>> queue.get()
 ('595d43b2-2e49-4e96-a1d2-0848d1c7f0d3', 'Hello World')
 >>> queue.get()
@@ -114,12 +116,28 @@ Constructor parameters
 
 `serializer`
     An optional serializer to use on the items. Default: None
-    
-    Feel free to write your own serializer. It only requires a ``dumps`` and ``loads`` methods.
-    
-    Modules like ``pickle``, ``json``, ``simplejson`` can be used out of the box.
-    
-    JSON serialization is particularly useful in lots of situations.
+
+    Feel free to write your own serializer. It only requires a ``dumps``
+    and ``loads`` methods. Modules like ``pickle``, ``json``,
+    ``simplejson`` can be used out of the box.
+
+    Note however, that when using Python 3 the ``json`` module has to be
+    wrapped as it by default does not handle the ``bytes`` properly that
+    is emitted by the underlying redis.py networking code. This should
+    work::
+
+        class MyJSONSerializer(object):
+            @staticmethod
+            def loads(bytes):
+                return json.loads(bytes.decode('utf-8'))
+
+            @staticmethod
+            def dumps(data):
+                return json.dumps(data)
+
+        queue = SafeRedisQueue(name='foobar',serializer=MyJSONSerializer)
+
+    *Added in version 3.0.0*
 
 
 Command line usage

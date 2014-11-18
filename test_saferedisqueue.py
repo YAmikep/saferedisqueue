@@ -18,13 +18,39 @@ else:
     nativestr = lambda x: \
         x if isinstance(x, str) else x.decode('utf-8', 'replace')
 
+
 from uuid import uuid1
 import time
 
+import mock
 import pytest
 
 from saferedisqueue import SafeRedisQueue
 
+
+def test_put_returns_uid_string():
+    queue = SafeRedisQueue(
+        name='saferedisqueue-test-%s' % uuid1().hex,
+        autoclean_interval=1)
+    # TODO: mock uuid.uuid4 here
+    uid = queue.put('blub')
+    assert len(uid) == 36
+    assert type(uid) is str
+
+
+def test_put_internally_converts_uuid_to_str():
+    queue = SafeRedisQueue(
+        name='saferedisqueue-test-%s' % uuid1().hex,
+        autoclean_interval=1)
+
+    # mock it
+    queue._redis = mock.Mock()
+    queue._redis.pipeline.return_value = pipeline_mock = mock.Mock()
+    pipeline_mock.hset.return_value = hset_mock = mock.Mock()
+
+    uid = queue.put('blub')
+    pipeline_mock.hset.assert_called_with(queue.ITEMS_KEY, uid, 'blub')
+    hset_mock.lpush.assert_called_with(queue.QUEUE_KEY, uid)
 
 
 def test_autocleanup():
@@ -120,7 +146,6 @@ def test_decode_responses_true():
     assert isinstance(return_val, unicode)
     assert unicode_string == return_val
 
-
 def test_decode_responses_false():
     queue = SafeRedisQueue(name='saferedisqueue-test-%s' % uuid1().hex)
     unicode_string = unichr(3456) + u('abcd') + unichr(3421)
@@ -134,14 +159,23 @@ def test_decode_responses_false():
 # Try with json and pickle serializer
 # Note: Python3: wrap json.loads to be able to handle the byte output.
 try:
-    import simplejson as JSONSerializer
+    import simplejson as json
 except ImportError:
-    import json as JSONSerializer
+    import json as json
 
 import pickle as PickleSerializer
 
+class MyJSONSerializer(object):
+    @staticmethod
+    def loads(bytes):
+        return json.loads(bytes.decode('utf-8'))
+
+    @staticmethod
+    def dumps(data):
+        return json.dumps(data)
+
 @pytest.mark.parametrize("serializer", [
-    JSONSerializer,
+    MyJSONSerializer,
     PickleSerializer,
 ])
 def test_serializer(serializer):
@@ -164,3 +198,21 @@ def test_serializer(serializer):
     uid_item, payload_item = queue.get(timeout=1)
     assert None == uid_item
     assert None == payload_item
+
+def test_serializer_calls():
+    serializer_mock = mock.Mock()
+    serializer_mock.dumps.return_value = '{"dumps": "return"}'
+    serializer_mock.loads.return_value = {"loads": "return"}
+
+    queue = SafeRedisQueue(
+        name='saferedisqueue-test-%s' % uuid1().hex,
+        autoclean_interval=1,
+        serializer=serializer_mock
+    )
+
+    item = {'test': 'good', 'values': ['a', 'b', 'c']}
+    queue.push(item)
+    serializer_mock.dumps.assert_called_with(item)
+
+    assert queue.pop()[1] == {"loads": "return"}
+    serializer_mock.loads.assert_called_with(b('{"dumps": "return"}'))
